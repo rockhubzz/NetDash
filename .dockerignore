@@ -1,0 +1,10 @@
+node_modules
+.next
+data/dashboard.db
+data/dashboard.db-*
+data/profiles
+.env
+.env.local
+.git
+*.log
+README.md

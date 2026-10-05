@@ -1,0 +1,23 @@
+services:
+  network-dashboard:
+    build: .
+    container_name: network-dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      SESSION_SECRET: ${SESSION_SECRET}
+      # Optional: COOKIE_SECURE=true/false overrides automatic Secure-flag
+      # detection (auto = Secure only over HTTPS). Needed only if your
+      # HTTPS proxy strips x-forwarded-proto (then set true), or similar.
+      #COOKIE_SECURE: ${COOKIE_SECURE:-}
+    volumes:
+      # Persists the device registry and every device's logged-in Chromium
+      # profile across container restarts/rebuilds.
+      - ./data:/app/data
+    # Default Docker /dev/shm (64MB) can crash Chromium under load even with
+    # --disable-dev-shm-usage set; this gives it real headroom.
+    shm_size: "1gb"
