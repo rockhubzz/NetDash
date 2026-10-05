@@ -147,6 +147,7 @@ components/
 lib/
   db.js                                device registry (Node's built-in node:sqlite - no native build step)
   browser-manager.js                   Playwright session lifecycle, screencast, input replay
+  select-polyfill.js                   in-page <select> dropdown lists (the screencast can't show native popups)
   ws-handler.js                        per-WebSocket-connection message loop
   session.js                           session-cookie verification (used by both middleware.ts and server.js)
   auth.ts                              session token creation (login) + re-exports session.js's verify
@@ -187,4 +188,11 @@ also means `npm run dev` / `npm start` now run `node server.js`, not the
   and the process-level guards in `server.js`), but a server restart drops
   all active screencasts — profiles (logins) survive; everyone just needs
   to reopen the device view.
+- **Native dropdowns are re-rendered in-page.** The screencast captures the
+  page surface only, so the browser's own `<select>` popup (and date/color
+  picker popups) would never appear in the stream. Single-choice `<select>`
+  elements instead open a plain-DOM option list (`lib/select-polyfill.js`)
+  that looks and behaves like the native one; picking an option writes it
+  back to the real `<select>` and fires `input`/`change` so device UIs react
+  normally. Multi-selects render inline already and are untouched.
 - Single admin account only — this isn't a multi-user system.
