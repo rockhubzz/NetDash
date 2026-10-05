@@ -28,9 +28,48 @@ const app = next({ dev });
 const handle = app.getRequestHandler();
 const port = parseInt(process.env.PORT || '3000', 10);
 
+// browser-manager holds the live headless sessions in module memory. This
+// must be the same instance the WebSocket handler below uses (Node's
+// require cache guarantees that within this process) - do NOT import it
+// from a Next route/Edge context, which would bundle a separate copy.
+const browserManager = require('./lib/browser-manager');
+
+/** Same-dashboard auth check as the WebSocket upgrade path. */
+async function readSession(req) {
+  const token = getCookie(req.headers.cookie, 'dashboard_session');
+  return token ? verifySessionToken(token) : null;
+}
+
+function handleSessionStatus(req, res) {
+  readSession(req)
+    .then((session) => {
+      if (!session) {
+        res.statusCode = 401;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ sessions: browserManager.getSessionStatus() }));
+    })
+    .catch((err) => {
+      console.error('[session-status]', err);
+      res.statusCode = 500;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ error: 'Failed to read session status' }));
+    });
+}
+
 app.prepare().then(() => {
   const server = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
+    // Session state lives in this process's browser-manager (see below) -
+    // a Next route handler would get its own bundled copy of that module
+    // with an empty session map, so status is served here directly.
+    if (parsedUrl.pathname === '/api/devices/status') {
+      return handleSessionStatus(req, res);
+    }
     handle(req, res, parsedUrl);
   });
 
@@ -49,8 +88,7 @@ app.prepare().then(() => {
     // never hits middleware.ts - the dashboard's own session cookie has to
     // be checked here explicitly, or the device stream would be reachable
     // by anyone who knows (or guesses) a device id, logged in or not.
-    const token = getCookie(req.headers.cookie, 'dashboard_session');
-    const session = token ? await verifySessionToken(token) : null;
+    const session = await readSession(req);
     if (!session) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
