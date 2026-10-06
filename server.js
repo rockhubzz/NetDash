@@ -61,6 +61,83 @@ function handleSessionStatus(req, res) {
     });
 }
 
+/** Device ids are UUIDs - strict allowlist so they can safely prefix filenames. */
+function isSafeDeviceId(id) {
+  return typeof id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(id);
+}
+
+// Downloads staged by lib/browser-manager's handleDownload. Served here
+// (not from a Next route) for the same reason as session status: the live
+// download index lives in this process's browser-manager instance.
+/** GET /api/devices/:id/downloads -> JSON list; .../downloads/:dlId -> file. */
+function handleDownloads(req, res, deviceId, downloadId) {
+  readSession(req)
+    .then((session) => {
+      if (!session) {
+        res.statusCode = 401;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
+      if (!isSafeDeviceId(deviceId)) {
+        res.statusCode = 404;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ error: 'Unknown device' }));
+        return;
+      }
+      if (!downloadId) {
+        res.statusCode = 200;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ downloads: browserManager.listDownloads(deviceId) }));
+        return;
+      }
+      const rec = browserManager.getDownloadRecord(deviceId, downloadId);
+      if (!rec) {
+        res.statusCode = 404;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ error: 'Download not found' }));
+        return;
+      }
+      const fs = require('fs');
+      let stat;
+      try {
+        stat = fs.statSync(rec.path);
+      } catch {
+        res.statusCode = 404;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ error: 'Download not found' }));
+        return;
+      }
+      const safeName = rec.name.replace(/"/g, '');
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/octet-stream');
+      res.setHeader('content-length', String(stat.size));
+      res.setHeader(
+        'content-disposition',
+        `attachment; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(rec.name)}`
+      );
+      // No caching of these blobs - each download id is single-use-ish and
+      // may be re-fetched after pruning.
+      res.setHeader('cache-control', 'no-store');
+      const stream = fs.createReadStream(rec.path);
+      stream.on('error', (err) => {
+        console.error('[downloads] stream error', err);
+        try {
+          res.destroy();
+        } catch {}
+      });
+      stream.pipe(res);
+    })
+    .catch((err) => {
+      console.error('[downloads]', err);
+      try {
+        res.statusCode = 500;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ error: 'Failed to serve download' }));
+      } catch {}
+    });
+}
+
 app.prepare().then(() => {
   const server = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
@@ -69,6 +146,15 @@ app.prepare().then(() => {
     // with an empty session map, so status is served here directly.
     if (parsedUrl.pathname === '/api/devices/status') {
       return handleSessionStatus(req, res);
+    }
+    // Same story for downloads staged by the headless browsers: the index
+    // lives in this process, so the list/file endpoints are served here.
+    // Must come before Next's handler; /api/devices/[id] only matches its
+    // own single segment so there is no conflict with these subpaths.
+    const dlMatch =
+      parsedUrl.pathname && parsedUrl.pathname.match(/^\/api\/devices\/([^/]+)\/downloads(?:\/([^/]+))?$/);
+    if (dlMatch) {
+      return handleDownloads(req, res, dlMatch[1], dlMatch[2]);
     }
     handle(req, res, parsedUrl);
   });

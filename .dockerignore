@@ -3,6 +3,8 @@ node_modules
 data/dashboard.db
 data/dashboard.db-*
 data/profiles
+data/uploads
+data/downloads
 .env
 .env.local
 .git

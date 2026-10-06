@@ -175,6 +175,22 @@ also means `npm run dev` / `npm start` now run `node server.js`, not the
   Sessions for devices you're not currently viewing stop their screencast
   (cheap) but keep the browser profile/page open (so switching back is
   instant) until you close/delete the device.
+- **File uploads work via an upload button.** The headless browser runs on
+  the server, so its native file picker can never see your machine's disk.
+  Instead, click the upload button in the device view (or click Browse in
+  the remote page and you'll be prompted) to send a file from your device
+  over the device WebSocket (max 50 MB); the server stages it and feeds it
+  to the remote page's file picker (`fileStart` / `fileChunk` / `fileEnd` /
+  `fileChooser` / `fileReady` / `fileConsumed` messages in
+  `lib/browser-manager.js` + `components/RemoteScreen.tsx`).
+- **Downloads from the remote page come back to you.** A device UI saving a
+  file (config backup, log export) downloads into the server's headless
+  browser; the server stages it under `data/downloads/` (newest 20 per
+  device, 7-day retention) and announces it over the device WebSocket
+  (`downloadReady`). The device view shows a save link plus a download
+  button listing every staged file, served as attachments from
+  `/api/devices/:id/downloads` in `server.js` (same dashboard login
+  required).
 - **No clipboard bridging.** You can type into the remote page, but your
   system clipboard isn't synced with it — copy/paste between your machine
   and the device's UI isn't wired up.
@@ -195,4 +211,11 @@ also means `npm run dev` / `npm start` now run `node server.js`, not the
   that looks and behaves like the native one; picking an option writes it
   back to the real `<select>` and fires `input`/`change` so device UIs react
   normally. Multi-selects render inline already and are untouched.
+- **JavaScript dialogs are relayed to the dashboard.** Playwright dismisses
+  `alert`/`confirm`/`prompt`/`beforeunload` dialogs with no listener, and the
+  native popup wouldn't show in the screencast anyway. The server instead
+  pauses the page (as a real browser would) and forwards the dialog to
+  viewers, who answer through a modal in the device view (`dialog` /
+  `dialogAccept` / `dialogDismiss` / `dialogClosed` over the device
+  WebSocket); the answer flows back synchronously so page logic is unaffected.
 - Single admin account only — this isn't a multi-user system.
